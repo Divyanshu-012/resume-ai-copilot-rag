@@ -1,0 +1,21 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+*.env
+
+# ChromaDB storage
+backend/vectorstore/
+
+# Next.js
+AI-Copilot/node_modules/
+AI-Copilot/.next/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
