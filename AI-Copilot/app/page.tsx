@@ -3,25 +3,39 @@
 import { useState } from "react";
 import {
   analyzeApplication,
+  chatWithResume,
   generateEmail as generateEmailApi,
   generateSuggestions as generateSuggestionsApi,
   ingestResume,
+  type AnalyzeResult,
   type RagChunk,
+  type RagSource,
 } from "@/lib/api";
+
+type MatchResult = AnalyzeResult["match"];
+
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [jd, setJd] = useState("");
   const [resumeId, setResumeId] = useState("");
   const [skills, setSkills] = useState<string[]>([]);
-  const [matchResult, setMatchResult] = useState<any>(null);
+  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [analysis, setAnalysis] = useState("");
   const [ragContext, setRagContext] = useState<RagChunk[]>([]);
   const [email, setEmail] = useState("");
   const [suggestions, setSuggestions] = useState("");
+  const [chatQuestion, setChatQuestion] = useState("");
+  const [chatAnswer, setChatAnswer] = useState("");
+  const [chatContext, setChatContext] = useState<RagChunk[]>([]);
+  const [chatSources, setChatSources] = useState<RagSource[]>([]);
   const [loading, setLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
 
@@ -51,9 +65,9 @@ export default function Home() {
       setMatchResult(analyzeData.match);
       setAnalysis(analyzeData.analysis);
       setRagContext(analyzeData.rag_context || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err.message || "Something went wrong. Check backend/.env and NEXT_PUBLIC_API_URL");
+      setError(getErrorMessage(err, "Something went wrong. Check backend/.env and NEXT_PUBLIC_API_URL"));
     } finally {
       setLoading(false);
     }
@@ -66,8 +80,8 @@ export default function Home() {
       const data = await generateEmailApi(resumeId, jd, skills);
       setEmail(data.email);
       if (data.rag_context?.length) setRagContext(data.rag_context);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Email generation failed"));
     } finally {
       setEmailLoading(false);
     }
@@ -79,10 +93,41 @@ export default function Home() {
     try {
       const data = await generateSuggestionsApi(matchResult.missing, jd, resumeId);
       setSuggestions(data.suggestions);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Suggestions failed"));
     } finally {
       setSuggestLoading(false);
+    }
+  };
+
+  const askResumeQuestion = async () => {
+    if (!chatQuestion.trim()) { alert("Ask a question first"); return; }
+    if (!resumeId && !file) { alert("Upload a resume first"); return; }
+
+    setChatLoading(true);
+    setError("");
+    setChatAnswer("");
+    setChatContext([]);
+    setChatSources([]);
+
+    try {
+      let activeResumeId = resumeId;
+
+      if (!activeResumeId && file) {
+        const ingestData = await ingestResume(file);
+        activeResumeId = ingestData.resume_id;
+        setResumeId(ingestData.resume_id);
+        setSkills(ingestData.skills || []);
+      }
+
+      const data = await chatWithResume(activeResumeId, chatQuestion);
+      setChatAnswer(data.answer);
+      setChatContext(data.rag_context || []);
+      setChatSources(data.sources || []);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Resume chat failed"));
+    } finally {
+      setChatLoading(false);
     }
   };
 
@@ -291,7 +336,7 @@ export default function Home() {
                 <div style={{ marginTop: 14 }}>
                   <div className="label" style={{ marginBottom: 8 }}>≈ Semantic Matches</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {matchResult.semantic_matches.map((item: any) => (
+                    {matchResult.semantic_matches.map((item) => (
                       <div key={`${item.jd_skill}-${item.resume_skill}`} style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
                         {item.jd_skill} ↔ {item.resume_skill} ({item.similarity})
                       </div>
@@ -377,6 +422,62 @@ export default function Home() {
         </div>
       )}
 
+      {/* ── CHAT WITH RESUME ── */}
+      <div className="card fade-up" style={{ padding: 28, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(124,58,237,0.12)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem" }}>💬</div>
+          <div>
+            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "0.95rem" }}>Chat With Resume</div>
+            <div className="label" style={{ marginTop: 2 }}>Ask questions grounded in retrieved resume chunks</div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "stretch" }}>
+          <input
+            className="field"
+            placeholder="Ask about projects, skills, work experience, education..."
+            value={chatQuestion}
+            onChange={e => setChatQuestion(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !chatLoading) askResumeQuestion();
+            }}
+          />
+          <button className="btn btn-primary" style={{ padding: "0 22px" }} onClick={askResumeQuestion} disabled={chatLoading}>
+            {chatLoading ? <><span className="spin" style={{ display:"inline-block",width:14,height:14,border:"2px solid #02020a",borderTopColor:"transparent",borderRadius:"50%" }} /> Asking…</> : "Ask"}
+          </button>
+        </div>
+
+        {chatAnswer && (
+          <div style={{ marginTop: 20 }}>
+            <div className="hr" style={{ marginBottom: 18 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+              <div>
+                <div className="label" style={{ marginBottom: 8 }}>Answer</div>
+                <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-body)", fontSize: "0.85rem", color: "rgba(232,232,240,0.84)", lineHeight: 1.7 }}>{chatAnswer}</pre>
+              </div>
+              <div>
+                <div className="label" style={{ marginBottom: 8 }}>Retrieved Chunks</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {chatContext.map((chunk, index) => {
+                    const source = chatSources[index];
+                    const chunkIndex = source?.metadata?.chunk_index;
+
+                    return (
+                      <div key={`${source?.id || "chunk"}-${index}`} style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                        <div className="label" style={{ marginBottom: 6 }}>
+                          Chunk {typeof chunkIndex === "number" ? chunkIndex + 1 : index + 1} · Similarity {chunk.similarity ?? "—"}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 1.6 }}>{chunk.text}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── PRO TIPS ── */}
       <div className="card fade-up d4" style={{ padding: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 22 }}>
@@ -410,4 +511,3 @@ export default function Home() {
     </div>
   );
 }
-

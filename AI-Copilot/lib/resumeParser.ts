@@ -1,17 +1,27 @@
 import Groq from "groq-sdk";
 import PDFParser from "pdf2json";
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+type PdfParserConstructor = new (context?: unknown, needRawText?: number) => PDFParser;
+type PdfParserError = { parserError: Error } | Error;
+
+function getGroqClient() {
+  return new Groq({
+    apiKey: process.env.GROQ_API_KEY,
+  });
+}
+
+function getPdfParserErrorMessage(err: PdfParserError) {
+  return "parserError" in err ? err.parserError.message : err.message;
+}
 
 // Extracts plain text from a PDF buffer using pdf2json
 function extractTextFromPDF(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
-    const pdfParser = new (PDFParser as any)(null, 1);
+    const PdfParser = PDFParser as unknown as PdfParserConstructor;
+    const pdfParser = new PdfParser(null, 1);
 
-    pdfParser.on("pdfParser_dataError", (err: any) => {
-      reject(new Error(err.parserError));
+    pdfParser.on("pdfParser_dataError", (err: PdfParserError) => {
+      reject(new Error(getPdfParserErrorMessage(err) || "Failed to parse PDF"));
     });
 
     pdfParser.on("pdfParser_dataReady", () => {
@@ -39,7 +49,7 @@ export async function parseResume(buffer: Buffer) {
   }
 
   // Step 2: send clean text to Groq for skill extraction
-  const completion = await groq.chat.completions.create({
+  const completion = await getGroqClient().chat.completions.create({
     model: "llama-3.3-70b-versatile",
     messages: [
       {

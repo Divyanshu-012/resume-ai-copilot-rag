@@ -22,6 +22,18 @@ export type RagChunk = {
   similarity: number | null;
 };
 
+export type RagSource = {
+  id: string | null;
+  metadata: Record<string, unknown>;
+  similarity: number | null;
+};
+
+export type ChatResumeResult = {
+  answer: string;
+  rag_context: RagChunk[];
+  sources: RagSource[];
+};
+
 export type AnalyzeResult = {
   resume_id: string;
   jd_skills: string[];
@@ -131,6 +143,26 @@ export async function semanticSearch(query: string, resumeId?: string) {
 
   if (!response.ok) {
     throw new Error(await parseError(response, "Semantic search failed"));
+  }
+
+  return response.json();
+}
+
+export async function chatWithResume(
+  resumeId: string,
+  question: string
+): Promise<ChatResumeResult> {
+  const response = await fetch(`${API_BASE}/chat-resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      resume_id: resumeId,
+      question,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseError(response, "Resume chat failed"));
   }
 
   return response.json();

@@ -33,6 +33,68 @@ class RagChunk(BaseModel):
     similarity: float | None
 
 
+class RagSource(BaseModel):
+    id: str | None
+    metadata: dict = Field(default_factory=dict)
+    similarity: float | None
+
+
+class ChatResumeRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "resume_id": "a1b2c3d4e5f67890",
+                    "question": "What FastAPI and RAG experience does this candidate have?",
+                }
+            ]
+        }
+    )
+
+    resume_id: str = Field(..., min_length=1, examples=["a1b2c3d4e5f67890"])
+    question: str = Field(
+        ...,
+        min_length=3,
+        examples=["What FastAPI and RAG experience does this candidate have?"],
+    )
+
+
+class ChatResumeResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "answer": (
+                        "The resume mentions that the candidate built FastAPI services "
+                        "with ChromaDB retrieval pipelines."
+                    ),
+                    "rag_context": [
+                        {
+                            "text": "Built FastAPI services with ChromaDB retrieval pipelines.",
+                            "similarity": 0.84,
+                        }
+                    ],
+                    "sources": [
+                        {
+                            "id": "a1b2c3d4e5f67890_chunk_3",
+                            "metadata": {
+                                "resume_id": "a1b2c3d4e5f67890",
+                                "source": "resume",
+                                "chunk_index": 3,
+                            },
+                            "similarity": 0.84,
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+
+    answer: str
+    rag_context: list[RagChunk]
+    sources: list[RagSource]
+
+
 class MatchResult(BaseModel):
     score: int
     matched: list[str]
